@@ -1,0 +1,368 @@
+------------------------------------------ application.properties ----------------------------------
+
+spring.application.name=order-management
+
+server.port=8081
+
+# Connect to MySQL Database
+spring.datasource.url=jdbc:mysql://localhost:3306/eshop
+spring.datasource.username=dev
+spring.datasource.password=pass
+
+spring.mvc.hiddenmethod.filter.enabled=true
+
+----------------------------------------- UserController ----------------------------------
+
+
+package com.example.ordermanagement.user;
+
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Controller;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+
+import java.awt.*;
+
+@Controller
+public class UserController {
+
+    @GetMapping
+    public String showLoginForm() {
+        return "login";
+    }
+
+    @PostMapping(
+            value = "/login",
+            consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE
+    )
+    public String login(
+            @RequestBody MultiValueMap<String, String > data,
+            HttpServletRequest request
+    ) {
+        Integer userId = Integer.valueOf(data.getFirst("userId"));
+        String password = data.getFirst("password");
+        System.out.println(userId + ":" + password);
+        request.getSession().setAttribute("userId", userId);
+        return "redirect:/orders";
+    }
+}
+
+
+
+----------------------------------------- login.html ----------------------------------
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sign in here</title>
+</head>
+<body>
+<h1>Login</h1>
+
+<form action="/login" method="post">
+    User id - <input type="text" name="userId" /><br>
+    Password - <input type="password" name="password" /><br><br>
+    <button type="submit">Sign in</button>
+</form>
+</body>
+</html>
+
+
+
+----------------------------------------- OrderController ----------------------------------
+
+
+package com.example.ordermanagement.order;
+
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDateTime;
+import java.util.Optional;
+
+@Controller
+@RequestMapping("orders")
+public class OrderController {
+
+    private final OrderService orderService;
+
+    public OrderController(
+            OrderService orderService
+    ) {
+        this.orderService = orderService;
+    }
+
+    @GetMapping
+    public String showAllOrders (
+            Model model,
+            HttpServletRequest request
+    ) {
+        Integer userId = (Integer) request.getSession().getAttribute("userId");
+        System.out.println("user id = " + userId);
+        Iterable<Order> allOrders = this.orderService.getAllOrders();
+        model.addAttribute("data", allOrders);
+        return "orders";
+    }
+
+    @GetMapping("{orderId}")
+    public String showOneOrder (
+            Model model,
+            @PathVariable("orderId") Integer id
+    ) {
+        Optional<Order> order = this.orderService.getOrderById(id);
+        if (order.isEmpty()) {
+            model.addAttribute(
+                    "error",
+                    "Order with id " + id + " not found"
+            );
+        } else {
+            model.addAttribute(
+                    "order",
+                    order.get()
+            );
+        }
+        return "order";
+    }
+
+    @GetMapping("new")
+    public String newOrderForm(
+            Model model
+    ) {
+        Order order = new Order();
+        order.setStatus(OrderStatus.SUBMITTED);
+        order.setPlacedTime(LocalDateTime.now());
+        model.addAttribute("order", order);
+        return "new-order";
+    }
+
+    @PutMapping
+    public String updateOrCreateOrder(
+            @ModelAttribute Order order
+    ) {
+        this.orderService.saveOrder(order);
+        return "redirect:/orders";
+    }
+
+}
+
+
+----------------------------------------- OrderService ----------------------------------
+
+
+
+package com.example.ordermanagement.order;
+
+import org.springframework.stereotype.Service;
+
+import java.util.Optional;
+
+@Service
+public class OrderService {
+
+    private final OrderRepository repository;
+
+    public OrderService(OrderRepository repository) {
+        this.repository = repository;
+    }
+
+    public Iterable<Order> getAllOrders() {
+        return this.repository.findAll();
+    }
+
+    Optional<Order> getOrderById(Integer id) {
+        return repository.findById(id);
+    }
+
+    public void saveOrder(Order order) {
+        this.repository.save(order);
+    }
+}
+
+
+----------------------------------------- OrderRepository ----------------------------------
+
+
+package com.example.ordermanagement.order;
+
+import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Repository;
+
+import java.time.LocalDateTime;
+import java.util.Optional;
+
+@Repository
+public class OrderRepository {
+
+    private final JdbcClient jdbcClient;
+
+    public OrderRepository(JdbcClient jdbcClient) {
+        this.jdbcClient = jdbcClient;
+    }
+
+    RowMapper<Order> orderRowMapper = (rs, rowNo) -> {
+        int id = rs.getInt("id");
+        String name = rs.getString("name");
+        LocalDateTime placedTime = rs.getTimestamp("placed_time").toLocalDateTime();
+        int totalAmount = rs.getInt("total_amount");
+        OrderStatus status = OrderStatus.valueOf(rs.getString("status"));
+        Order order = new Order();
+        order.setId(id);
+        order.setName(name);
+        order.setPlacedTime(placedTime);
+        order.setTotalAmount(totalAmount);
+        order.setStatus(status);
+        return order;
+    };
+
+    Iterable<Order> findAll() {
+        return jdbcClient.sql("SELECT id, name, placed_time, total_amount, status FROM orders")
+                .query(orderRowMapper).list();
+    }
+
+    Optional<Order> findById(Integer id) {
+        return jdbcClient.sql("SELECT id, name, placed_time, total_amount, status FROM orders WHERE id = :id")
+                .param("id", id)
+                .query(orderRowMapper)
+                .optional();
+    }
+
+    public void save(Order order) {
+        this.jdbcClient.sql("INSERT INTO orders (name, placed_time, total_amount, status) VALUES (:name, :placed_time, :total_amount, :status)")
+                .param("name", order.getName())
+                .param("placed_time", order.getPlacedTime())
+                .param("total_amount", order.getTotalAmount())
+                .param("status", order.getStatus().toString())
+                .update();
+    }
+}
+
+
+----------------------------------------- new-order.html ----------------------------------
+
+
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>New order</title>
+</head>
+<body>
+<form th:action="@{/orders}" th:object="${order}" th:method="put">
+    <input th:if="${order.id != null}" type="hidden" th:field="*{id}">
+    <p>Name: <input type="text" th:field="*{name}" /></p>
+    <p>Placed time: <input type="datetime-local" th:field="*{placedTime}"></p>
+    <p>Total amount: <input type="text" th:field="*{totalAmount}" pattern="[0-9]+"></p>
+    <p>Order Status:
+        <select th:field="*{status}" th:value="*{status}">
+            <option value="SUBMITTED">Created</option>
+            <option value="COMPLETED">Completed</option>
+        </select>
+    </p>
+    <p><input type="submit" value="Submit" /> <input type="reset" value="Reset" /></p>
+</form>
+</body>
+</html>
+
+
+----------------------------------------- orders.html ----------------------------------
+
+
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Orders</title>
+    <link rel="stylesheet" href="/css/orders.css">
+</head>
+<body>
+<h1>All orders</h1>
+<a href="/orders/new">Create new order</a>
+<ol>
+    <th:block th:each="order: ${data}">
+        <li>
+            <p>
+                <span>Name = </span><span th:text="${order.getName()}"></span> -
+                <a th:href="@{/orders/{id}(id=${order.id})}">View order items</a>
+            </p>
+        </li>
+    </th:block>
+</ol>
+
+<button id="click-me">Click me</button>
+
+<script src="/js/orders.js"></script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+public Optional<Order> findById(Integer id) {
+        return jdbcClient.sql("SELECT * FROM orders WHERE id = :id")
+                .params(Map.of("id", id))
+                .query((rs, rowNum) -> new Order(
+                        rs.getInt("id"),
+                        rs.getString("name"),
+                        rs.getTimestamp("placed_time").toLocalDateTime(),
+                        rs.getInt("total_amount"),
+                        OrderStatus.valueOf(rs.getString("status"))
+                ))
+                .optional();
+    }
+
+
+package com.example.ordermanagement.user;
+
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Controller;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+
+import java.awt.*;
+
+@Controller
+public class UserController {
+
+    @GetMapping
+    public String showLoginForm() {
+        return "login";
+    }
+
+    @PostMapping(
+            value = "/login",
+            consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE
+    )
+    public String login(
+            @RequestBody MultiValueMap<String, String > data,
+            HttpServletRequest request
+    ) {
+        Integer userId = Integer.valueOf(data.getFirst("username"));
+        String password = data.getFirst("password");
+        System.out.println(userId + ":" + password);
+        request.getSession().setAttribute("userId", userId);
+        return "redirect:/orders";
+    }
+}
+

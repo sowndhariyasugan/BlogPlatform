@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title th:text="${blog != null ? blog.getBlogId() : 'Error'}"></title>
+</head>
+<body>
+<div th:if="${blog}">
+    <p>Id - <span th:text="${blog.getBlogId()}"></span></p>
+    <p>Name - <span th:text="${blog.getBlogUserId()}"></span></p>
+    <p>Blog category Id- <span th:text="${blog.getBlogCategoryId()}"></span></p>
+    <p>BlogTitle - <span th:text="${blog.getBlogTitle()}"></span></p>
+    <p>Blog Content - <span th:text="${blog.getBlogContent()}"></span></p>
+    <p><a th:href="@{/blogs/{id}/update(id=${blog.getBlogId()})}">Update Blog</a></p>
+
+    <form th:action="@{/blogs/{id}(id=${blog.getBlogId()})}" th:method="delete">
+        <button type="submit">Delete Blog</button>
+    </form>
+
+</div>
+<div th:if="${error}" style="color: red;" th:text="${error}"></div>
+
+</body>
+</html>
+</html>
